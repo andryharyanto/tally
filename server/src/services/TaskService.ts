@@ -3,7 +3,8 @@ import { Task, Message, ParsedTaskData } from '../../../shared/types';
 import { TaskModel } from '../models/Task';
 import { MessageModel } from '../models/Message';
 import { UserModel } from '../models/User';
-import { MessageParser, ParseResult } from '../parsers/MessageParser';
+import { LLMMessageParser, ParseResult } from '../parsers/LLMMessageParser';
+import { MessageParser } from '../parsers/MessageParser';
 
 export class TaskService {
   static async processMessage(userId: string, content: string): Promise<{
@@ -19,8 +20,31 @@ export class TaskService {
       throw new Error('User not found');
     }
 
-    // Parse the message with confidence scoring
-    const parseResult = MessageParser.parse(content, users);
+    // Get recent conversation context
+    const recentMessages = MessageModel.findRecent(5);
+    const conversationContext = recentMessages
+      .slice(-5)
+      .map(m => `${m.userName}: ${m.content}`);
+
+    // Parse the message with LLM (with fallback to deterministic)
+    let parseResult: ParseResult;
+
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        parseResult = await LLMMessageParser.parse(content, users, conversationContext);
+        console.log('LLM Parse Result:', {
+          isTaskWorthy: parseResult.isTaskWorthy,
+          confidence: parseResult.confidence,
+          reasoning: parseResult.reasoning
+        });
+      } catch (error) {
+        console.error('LLM parsing failed, using deterministic fallback:', error);
+        parseResult = MessageParser.parse(content, users);
+      }
+    } else {
+      console.warn('No ANTHROPIC_API_KEY found, using deterministic parser');
+      parseResult = MessageParser.parse(content, users);
+    }
 
     // Create the message
     const message: Omit<Message, 'timestamp'> = {
