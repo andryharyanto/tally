@@ -1,6 +1,6 @@
 ## Summary
 
-This PR introduces a comprehensive conversational task tracker for finance teams with advanced LLM-powered features, intelligent message parsing, auto-naming/tagging, and a learning system.
+This PR introduces a comprehensive conversational task tracker for finance teams with advanced LLM-powered features, intelligent message parsing, auto-naming/tagging with temporal filtering, and a learning system.
 
 ## Key Features
 
@@ -33,12 +33,19 @@ This PR introduces a comprehensive conversational task tracker for finance teams
 - **OBSERVATION**: Noting issues without clear action
 - **CONVERSATION**: Casual chat and acknowledgments
 
+### 📅 Temporal Filtering with Month Tags
+- **YYYY-MM Format**: Auto-generates month tags like `#2025-10`, `#2025-11` for easy filtering
+- **Smart Extraction**: Parses months from metadata, task titles, and due dates
+- **Multiple Formats**: Handles month names (October), abbreviations (Oct), and numbers (10)
+- **Fallback Logic**: Tries metadata first, then title parsing, then due date
+- **Finance-Friendly**: Perfect for tracking monthly close, quarterly reviews, and fiscal periods
+
 ## Example Usage
 
 ### Natural Language Task Creation
 ```
 "I am starting Humana Invoice October 2025"
-→ Creates: "INV-0001: Humana Invoice" with tags: #invoice, #billing, #humana
+→ Creates: "INV-0001: Humana Invoice" with tags: #invoice, #billing, #humana, #2025-10
 ```
 
 ### Comments and Questions
@@ -53,17 +60,28 @@ This PR introduces a comprehensive conversational task tracker for finance teams
 → Updates task title and records correction for learning
 ```
 
+### Month-Based Filtering
+```
+"November 2025 Financial Close"
+→ Creates: "CLOSE-0001: November 2025 Financial Close" with tags: #monthly-close, #financial-reporting, #november, #2025-11
+
+Filter all Q4 2025 tasks: #2025-10, #2025-11, #2025-12
+```
+
 ## Technical Implementation
 
 ### Backend
-- **TaskNamingService**: Translation layer for auto-naming and tagging
+- **TaskNamingService**: Translation layer for auto-naming, tagging, and month extraction
+- **Month Tag Extraction**: Smart parsing from metadata, titles, and dates with fallback logic
+- **Error Handling**: Robust try-catch blocks ensure core operations work even if learning system fails
 - **TaskNameLearningModel**: Stores user corrections for learning
 - **Enhanced LLM Parser**: Supports rename/retag actions with 8 action types
 - **Task Reference Matching**: Intelligent keyword-based scoring (exact phrase: 100 pts, keywords: 10 pts)
 - **API Endpoints**: PATCH `/tasks/:id/rename` and `/tasks/:id/retag`
 
 ### Frontend
-- **Tag Display**: Purple badges with #tag-name format on task cards
+- **Tag Display**: Purple badges with #tag-name format on task cards (includes month tags)
+- **Month Tag Visibility**: YYYY-MM tags displayed prominently for temporal filtering
 - **Magic Filter UI**: Filter banner, empty states, and selection indicators
 - **Message Type Badges**: Color-coded badges for QUESTION, COMMENT, OBSERVATION
 
