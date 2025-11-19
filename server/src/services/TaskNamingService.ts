@@ -18,7 +18,17 @@ export class TaskNamingService {
     workflowType: string,
     metadata: Record<string, any>
   ): TaskNamingResult {
-    const learningPatterns = TaskNameLearningModel.getLearningPatterns();
+    let learningPatterns: { namingPatterns: string[]; taggingPatterns: string[] } = {
+      namingPatterns: [],
+      taggingPatterns: []
+    };
+
+    try {
+      learningPatterns = TaskNameLearningModel.getLearningPatterns();
+    } catch (error) {
+      console.error('Error loading learning patterns:', error);
+      // Continue without learning patterns
+    }
 
     // Generate task ID based on workflow
     const taskId = this.generateTaskId(workflowType);
@@ -68,6 +78,12 @@ export class TaskNamingService {
       default:
         enhancedTitle = `${taskId}: ${rawTitle}`;
         tags.push('general');
+    }
+
+    // Add month tags in YYYY-MM format for temporal workflows
+    const monthTag = this.extractMonthTag(metadata, rawTitle);
+    if (monthTag) {
+      tags.push(monthTag);
     }
 
     // Apply learning from past corrections
@@ -207,33 +223,43 @@ export class TaskNamingService {
     correctedTags: string[],
     userMessage: string
   ): void {
-    TaskNameLearningModel.create({
-      id: uuidv4(),
-      originalTitle,
-      correctedTitle,
-      workflowType,
-      originalTags,
-      correctedTags,
-      userMessage
-    });
+    try {
+      TaskNameLearningModel.create({
+        id: uuidv4(),
+        originalTitle,
+        correctedTitle,
+        workflowType,
+        originalTags,
+        correctedTags,
+        userMessage
+      });
+    } catch (error) {
+      console.error('Error recording correction:', error);
+      // Don't fail the operation if learning fails
+    }
   }
 
   /**
    * Get suggestions for improving a task name based on learning
    */
   static getSuggestions(taskTitle: string, workflowType: string): string[] {
-    const corrections = TaskNameLearningModel.findByWorkflowType(workflowType);
-    const suggestions: string[] = [];
+    try {
+      const corrections = TaskNameLearningModel.findByWorkflowType(workflowType);
+      const suggestions: string[] = [];
 
-    // Find similar corrections
-    for (const correction of corrections) {
-      const similarity = this.calculateSimilarity(taskTitle, correction.originalTitle);
-      if (similarity > 0.5) {
-        suggestions.push(`Consider: "${correction.correctedTitle}" (based on similar past correction)`);
+      // Find similar corrections
+      for (const correction of corrections) {
+        const similarity = this.calculateSimilarity(taskTitle, correction.originalTitle);
+        if (similarity > 0.5) {
+          suggestions.push(`Consider: "${correction.correctedTitle}" (based on similar past correction)`);
+        }
       }
-    }
 
-    return suggestions.slice(0, 3);
+      return suggestions.slice(0, 3);
+    } catch (error) {
+      console.error('Error getting suggestions:', error);
+      return [];
+    }
   }
 
   private static calculateSimilarity(str1: string, str2: string): number {
@@ -241,5 +267,87 @@ export class TaskNamingService {
     const words2 = str2.toLowerCase().split(/\s+/);
     const common = words1.filter(w => words2.includes(w));
     return common.length / Math.max(words1.length, words2.length);
+  }
+
+  /**
+   * Extract month tag in YYYY-MM format from metadata or title
+   */
+  private static extractMonthTag(metadata: Record<string, any>, rawTitle: string): string | null {
+    const monthNames: Record<string, string> = {
+      'january': '01', 'jan': '01',
+      'february': '02', 'feb': '02',
+      'march': '03', 'mar': '03',
+      'april': '04', 'apr': '04',
+      'may': '05',
+      'june': '06', 'jun': '06',
+      'july': '07', 'jul': '07',
+      'august': '08', 'aug': '08',
+      'september': '09', 'sep': '09', 'sept': '09',
+      'october': '10', 'oct': '10',
+      'november': '11', 'nov': '11',
+      'december': '12', 'dec': '12'
+    };
+
+    let year: number | null = null;
+    let monthNum: string | null = null;
+
+    // Try to get from metadata first
+    if (metadata.year) {
+      year = parseInt(String(metadata.year));
+    }
+
+    if (metadata.month) {
+      const monthStr = String(metadata.month).toLowerCase().trim();
+      // Check if it's a month name or abbreviation
+      if (monthNames[monthStr]) {
+        monthNum = monthNames[monthStr];
+      } else {
+        // Try to parse as number
+        const parsed = parseInt(monthStr);
+        if (parsed >= 1 && parsed <= 12) {
+          monthNum = String(parsed).padStart(2, '0');
+        }
+      }
+    }
+
+    // If we don't have complete info, try to parse from title
+    if (!year || !monthNum) {
+      const titleLower = rawTitle.toLowerCase();
+
+      // Look for year (4 digits)
+      const yearMatch = titleLower.match(/\b(20\d{2})\b/);
+      if (yearMatch && !year) {
+        year = parseInt(yearMatch[1]);
+      }
+
+      // Look for month names in title
+      if (!monthNum) {
+        for (const [name, num] of Object.entries(monthNames)) {
+          if (titleLower.includes(name)) {
+            monthNum = num;
+            break;
+          }
+        }
+      }
+    }
+
+    // If we have both year and month, return formatted tag
+    if (year && monthNum) {
+      return `${year}-${monthNum}`;
+    }
+
+    // Fallback: if we only have a year but no month, check if it's in metadata.dueDate
+    if (metadata.dueDate) {
+      try {
+        const date = new Date(metadata.dueDate);
+        if (!isNaN(date.getTime())) {
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+      } catch (e) {
+        // Ignore date parsing errors
+      }
+    }
+
+    return null;
   }
 }
