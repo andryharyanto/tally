@@ -118,15 +118,47 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
                   </span>
                 </div>
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                {message.parsedData && message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
+                {message.parsedData && (
                   <div className={`mt-2 text-xs ${isCurrentUser ? 'text-blue-100' : 'text-gray-600'}`}>
-                    <span className="font-medium">
-                      {message.parsedData.action === 'create' && '✓ Created task'}
-                      {message.parsedData.action === 'update' && '✓ Updated task'}
-                      {message.parsedData.action === 'complete' && '✓ Completed task'}
-                      {message.parsedData.action === 'block' && '⚠ Task blocked'}
-                      {message.parsedData.action === 'handoff' && '→ Handed off task'}
-                    </span>
+                    {/* Show parse result */}
+                    {(message.parsedData as any).isTaskWorthy === false && (
+                      <div className="flex items-center gap-1 opacity-75">
+                        <span>💬 Conversation (no task created)</span>
+                      </div>
+                    )}
+
+                    {/* Show task actions */}
+                    {message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">
+                          {message.parsedData.action === 'create' && '✓ Created task'}
+                          {message.parsedData.action === 'update' && '✓ Updated task'}
+                          {message.parsedData.action === 'complete' && '✓ Completed task'}
+                          {message.parsedData.action === 'block' && '⚠ Task blocked'}
+                          {message.parsedData.action === 'handoff' && '→ Handed off task'}
+                        </span>
+                        {message.relatedTaskIds.length > 1 && (
+                          <span className="ml-1">({message.relatedTaskIds.length} tasks)</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Show confidence if available */}
+                    {(message.parsedData as any).confidence !== undefined && (message.parsedData as any).isTaskWorthy && (
+                      <div className="mt-1 opacity-75">
+                        Confidence: {Math.round((message.parsedData as any).confidence * 100)}%
+                      </div>
+                    )}
+
+                    {/* Show suggestions if available */}
+                    {(message.parsedData as any).suggestions && (message.parsedData as any).suggestions.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        <div className="font-medium">Suggestions:</div>
+                        {(message.parsedData as any).suggestions.map((suggestion: string, idx: number) => (
+                          <div key={idx} className="pl-2">• {suggestion}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -1,31 +1,72 @@
 import * as chrono from 'chrono-node';
 import { ParsedTaskData, TaskStatus, TaskPriority } from '../../../shared/types';
 
+export interface ParseResult extends ParsedTaskData {
+  confidence: number; // 0-1 score indicating if this should be a task
+  isTaskWorthy: boolean;
+  suggestions?: string[];
+  batchItems?: string[];
+}
+
 export class MessageParser {
-  // Action patterns
+  // Non-task phrases (conversational, not work-related)
+  private static NON_TASK_PATTERNS = [
+    /^(?:hi|hello|hey|good morning|good afternoon|thanks|thank you|ok|okay|sure|yes|no|maybe)\b/i,
+    /^(?:how are you|what's up|how's it going)/i,
+    /^\?$/,
+    /^(?:lol|haha|hehe|:?\)|:?\()/i,
+  ];
+
+  // Strong task indicators
+  private static TASK_INDICATORS = [
+    /\b(?:invoice|payment|reconcil|budget|forecast|model|vendor|contract|report|analysis|review)\b/i,
+    /\b(?:INV-\d+|PO-\d+)\b/i, // Invoice/PO numbers
+    /\$\d+/i, // Money amounts
+    /\b(?:need to|have to|must|should|will|going to)\b/i,
+    /\b(?:by|due|deadline|before|after)\s+(?:today|tomorrow|friday|monday|week|month)/i,
+  ];
+
+  // Action patterns with confidence weights
   private static ACTION_PATTERNS = {
-    create: [
-      /^(?:create|created|add|added|start|started|begin|began|working on|generated?|processing|need to)\s+(.+)/i,
-      /^(.+?)(?:\s+for\s+.+)?$/i // fallback: treat as new task
-    ],
-    update: [
-      /^(?:update|updated|change|changed|modify|modified)\s+(.+)/i,
-    ],
-    complete: [
-      /^(?:complete|completed|done|finished|closed)\s+(.+)/i,
-      /^(.+?)\s+(?:is\s+)?(?:complete|done|finished)$/i
-    ],
-    block: [
-      /^(?:blocked?|stuck|waiting|waiting on|waiting for)\s+(?:on\s+)?(.+)/i,
-      /^(.+?)\s+(?:is\s+)?(?:blocked|stuck)(?:\s+(?:on|by)\s+(.+))?$/i
-    ],
-    handoff: [
-      /^(?:pass|passing|hand|handing|assign|assigning|transfer|transferring)\s+(.+?)\s+to\s+(.+)/i,
-      /^(?:give|giving)\s+(.+?)\s+to\s+(.+)/i
-    ],
-    comment: [
-      /^(?:note|fyi|update|heads up|just|actually)[:]\s*(.+)/i
-    ]
+    create: {
+      patterns: [
+        /^(?:create|created|add|added|start|started|begin|began|working on|generated?|processing|need to|have to|must)\s+(.+)/i,
+      ],
+      confidence: 0.85
+    },
+    update: {
+      patterns: [
+        /^(?:update|updated|change|changed|modify|modified|revise|revised)\s+(.+)/i,
+      ],
+      confidence: 0.8
+    },
+    complete: {
+      patterns: [
+        /^(?:complete|completed|done|finished|closed|shipped|delivered)\s+(.+)/i,
+        /^(.+?)\s+(?:is\s+)?(?:complete|done|finished)$/i
+      ],
+      confidence: 0.9
+    },
+    block: {
+      patterns: [
+        /^(?:blocked?|stuck|waiting|waiting on|waiting for)\s+(?:on\s+)?(.+)/i,
+        /^(.+?)\s+(?:is\s+)?(?:blocked|stuck)(?:\s+(?:on|by)\s+(.+))?$/i
+      ],
+      confidence: 0.85
+    },
+    handoff: {
+      patterns: [
+        /^(?:pass|passing|hand|handing|assign|assigning|transfer|transferring)\s+(.+?)\s+to\s+(.+)/i,
+        /^(?:give|giving)\s+(.+?)\s+to\s+(.+)/i
+      ],
+      confidence: 0.9
+    },
+    comment: {
+      patterns: [
+        /^(?:note|fyi|update|heads up|btw)[:]\s*(.+)/i
+      ],
+      confidence: 0.3
+    }
   };
 
   // Status keywords
@@ -89,65 +130,131 @@ export class MessageParser {
     ]
   };
 
-  static parse(content: string, users: Array<{ id: string; name: string }>): ParsedTaskData {
-    const parsed: ParsedTaskData = {};
+  static parse(content: string, users: Array<{ id: string; name: string }>): ParseResult {
+    const result: ParseResult = {
+      confidence: 0,
+      isTaskWorthy: false
+    };
 
-    // Detect action type
-    parsed.action = this.detectAction(content);
-
-    // Extract task title
-    parsed.taskTitle = this.extractTaskTitle(content, parsed.action);
-
-    // Extract assignees
-    parsed.assignees = this.extractAssignees(content, users);
-
-    // Extract deadline
-    const deadline = this.extractDeadline(content);
-    if (deadline) {
-      parsed.deadline = deadline;
+    // Check if message is obviously not a task
+    if (this.isNonTask(content)) {
+      result.confidence = 0.1;
+      result.isTaskWorthy = false;
+      return result;
     }
 
-    // Extract status
-    const status = this.extractStatus(content);
-    if (status) {
-      parsed.status = status;
+    // Detect action type and get confidence
+    const { action, confidence: actionConfidence } = this.detectActionWithConfidence(content);
+    result.action = action;
+    result.confidence = actionConfidence;
+
+    // Boost confidence if task indicators are present
+    const taskIndicatorBoost = this.calculateTaskIndicatorBoost(content);
+    result.confidence = Math.min(1, result.confidence + taskIndicatorBoost);
+
+    // Determine if task-worthy (threshold: 0.6)
+    result.isTaskWorthy = result.confidence >= 0.6;
+
+    // Only extract details if task-worthy
+    if (result.isTaskWorthy) {
+      // Check for batch operations
+      const batchItems = this.detectBatchItems(content);
+      if (batchItems.length > 1) {
+        result.batchItems = batchItems;
+        result.suggestions = [`Create ${batchItems.length} separate tasks?`, 'Create one grouped task?'];
+      }
+
+      // Extract task title
+      result.taskTitle = this.extractTaskTitle(content, action);
+
+      // Extract assignees
+      result.assignees = this.extractAssignees(content, users);
+
+      // Extract deadline
+      const deadline = this.extractDeadline(content);
+      if (deadline) {
+        result.deadline = deadline;
+      }
+
+      // Extract status
+      const status = this.extractStatus(content);
+      if (status) {
+        result.status = status;
+      }
+
+      // Extract priority
+      const priority = this.extractPriority(content);
+      if (priority) {
+        result.priority = priority;
+      }
+
+      // Detect workflow type
+      const workflowType = this.detectWorkflowType(content);
+      if (workflowType) {
+        result.workflowType = workflowType;
+      }
+
+      // Extract blocker information
+      if (action === 'block') {
+        result.blockedBy = this.extractBlocker(content);
+      }
+
+      // Extract workflow-specific metadata
+      result.metadata = this.extractMetadata(content, workflowType);
     }
 
-    // Extract priority
-    const priority = this.extractPriority(content);
-    if (priority) {
-      parsed.priority = priority;
-    }
-
-    // Detect workflow type
-    const workflowType = this.detectWorkflowType(content);
-    if (workflowType) {
-      parsed.workflowType = workflowType;
-    }
-
-    // Extract blocker information
-    if (parsed.action === 'block') {
-      parsed.blockedBy = this.extractBlocker(content);
-    }
-
-    // Extract workflow-specific metadata
-    parsed.metadata = this.extractMetadata(content, workflowType);
-
-    return parsed;
+    return result;
   }
 
-  private static detectAction(content: string): ParsedTaskData['action'] {
+  private static isNonTask(content: string): boolean {
+    return this.NON_TASK_PATTERNS.some(pattern => pattern.test(content.trim()));
+  }
+
+  private static calculateTaskIndicatorBoost(content: string): number {
+    let boost = 0;
+    for (const indicator of this.TASK_INDICATORS) {
+      if (indicator.test(content)) {
+        boost += 0.1;
+      }
+    }
+    return Math.min(0.3, boost); // Max 0.3 boost
+  }
+
+  private static detectBatchItems(content: string): string[] {
+    // Detect multiple items mentioned with "and", commas, or semicolons
+    const items: string[] = [];
+
+    // Pattern: "invoices for Acme and TechCorp"
+    const companyPattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:and|,)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g;
+    let match;
+    while ((match = companyPattern.exec(content)) !== null) {
+      items.push(match[1], match[2]);
+    }
+
+    // Pattern: "INV-123, INV-124, INV-125"
+    const invoicePattern = /(INV-\d+)(?:\s*,\s*|\s+and\s+)(INV-\d+)/gi;
+    while ((match = invoicePattern.exec(content)) !== null) {
+      items.push(match[1], match[2]);
+    }
+
+    return [...new Set(items)]; // Remove duplicates
+  }
+
+  private static detectActionWithConfidence(content: string): { action: ParsedTaskData['action'], confidence: number } {
     // Check for explicit action patterns
-    for (const [action, patterns] of Object.entries(this.ACTION_PATTERNS)) {
-      for (const pattern of patterns) {
+    for (const [action, config] of Object.entries(this.ACTION_PATTERNS)) {
+      for (const pattern of config.patterns) {
         if (pattern.test(content)) {
-          return action as ParsedTaskData['action'];
+          return {
+            action: action as ParsedTaskData['action'],
+            confidence: config.confidence
+          };
         }
       }
     }
 
-    // Default to create
-    return 'create';
+    // Default to create with low confidence
+    return { action: 'create', confidence: 0.5 };
   }
 
   private static extractTaskTitle(content: string, action?: string): string {

@@ -3,12 +3,13 @@ import { Task, Message, ParsedTaskData } from '../../../shared/types';
 import { TaskModel } from '../models/Task';
 import { MessageModel } from '../models/Message';
 import { UserModel } from '../models/User';
-import { MessageParser } from '../parsers/MessageParser';
+import { MessageParser, ParseResult } from '../parsers/MessageParser';
 
 export class TaskService {
   static async processMessage(userId: string, content: string): Promise<{
     message: Message;
     tasks: Task[];
+    parseResult: ParseResult;
   }> {
     // Get all users for assignee detection
     const users = UserModel.findAll();
@@ -18,8 +19,8 @@ export class TaskService {
       throw new Error('User not found');
     }
 
-    // Parse the message
-    const parsedData = MessageParser.parse(content, users);
+    // Parse the message with confidence scoring
+    const parseResult = MessageParser.parse(content, users);
 
     // Create the message
     const message: Omit<Message, 'timestamp'> = {
@@ -27,44 +28,55 @@ export class TaskService {
       userId: user.id,
       userName: user.name,
       content,
-      parsedData,
+      parsedData: parseResult, // Store full parse result
       relatedTaskIds: []
     };
 
     const tasks: Task[] = [];
 
-    // Process based on parsed action
-    if (parsedData.action === 'create' && parsedData.taskTitle) {
-      const task = this.createTask(user.id, parsedData);
-      tasks.push(task);
-      message.relatedTaskIds = [task.id];
-    } else if (parsedData.action === 'update' || parsedData.action === 'complete' || parsedData.action === 'block') {
-      // Try to find related tasks
-      const relatedTasks = this.findRelatedTasks(parsedData);
-
-      for (const task of relatedTasks) {
-        const updated = this.updateTask(task.id, parsedData);
-        if (updated) {
-          tasks.push(updated);
-          message.relatedTaskIds!.push(updated.id);
+    // Only create tasks if the message is task-worthy
+    if (parseResult.isTaskWorthy) {
+      // Handle batch operations
+      if (parseResult.batchItems && parseResult.batchItems.length > 1) {
+        // For now, create separate tasks for each batch item
+        for (const item of parseResult.batchItems) {
+          const batchTaskData = { ...parseResult, taskTitle: `${parseResult.taskTitle} - ${item}` };
+          const task = this.createTask(user.id, batchTaskData);
+          tasks.push(task);
+          message.relatedTaskIds!.push(task.id);
         }
-      }
-
-      // If no related tasks found, create a new one
-      if (relatedTasks.length === 0 && parsedData.taskTitle) {
-        const task = this.createTask(user.id, parsedData);
+      } else if (parseResult.action === 'create' && parseResult.taskTitle) {
+        const task = this.createTask(user.id, parseResult);
         tasks.push(task);
         message.relatedTaskIds = [task.id];
-      }
-    } else if (parsedData.action === 'handoff') {
-      const relatedTasks = this.findRelatedTasks(parsedData);
+      } else if (parseResult.action === 'update' || parseResult.action === 'complete' || parseResult.action === 'block') {
+        // Try to find related tasks
+        const relatedTasks = this.findRelatedTasks(parseResult);
 
-      for (const task of relatedTasks) {
-        if (parsedData.assignees && parsedData.assignees.length > 0) {
-          const updated = TaskModel.update(task.id, { assignees: parsedData.assignees });
+        for (const task of relatedTasks) {
+          const updated = this.updateTask(task.id, parseResult);
           if (updated) {
             tasks.push(updated);
             message.relatedTaskIds!.push(updated.id);
+          }
+        }
+
+        // If no related tasks found, create a new one
+        if (relatedTasks.length === 0 && parseResult.taskTitle) {
+          const task = this.createTask(user.id, parseResult);
+          tasks.push(task);
+          message.relatedTaskIds = [task.id];
+        }
+      } else if (parseResult.action === 'handoff') {
+        const relatedTasks = this.findRelatedTasks(parseResult);
+
+        for (const task of relatedTasks) {
+          if (parseResult.assignees && parseResult.assignees.length > 0) {
+            const updated = TaskModel.update(task.id, { assignees: parseResult.assignees });
+            if (updated) {
+              tasks.push(updated);
+              message.relatedTaskIds!.push(updated.id);
+            }
           }
         }
       }
@@ -75,7 +87,8 @@ export class TaskService {
 
     return {
       message: savedMessage,
-      tasks
+      tasks,
+      parseResult
     };
   }
 
