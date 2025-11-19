@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, Terminal } from 'lucide-react';
-import { Message, User } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Send, Terminal, X, Filter } from 'lucide-react';
+import { Message, User, Task } from '../types';
 import { api } from '../services/api';
 import { Socket } from 'socket.io-client';
 import { formatDistanceToNow } from 'date-fns';
@@ -9,12 +9,15 @@ interface ChatInterfaceProps {
   currentUser: User;
   socket: Socket | null;
   onTasksUpdated: () => void;
+  selectedTaskId: string | null;
+  onClearFilter: () => void;
 }
 
-export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInterfaceProps) {
+export function ChatInterface({ currentUser, socket, onTasksUpdated, selectedTaskId, onClearFilter }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,6 +39,30 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Load selected task details
+  useEffect(() => {
+    if (selectedTaskId) {
+      api.getTaskById(selectedTaskId).then(task => {
+        setSelectedTask(task);
+      }).catch(error => {
+        console.error('Failed to load selected task:', error);
+        setSelectedTask(null);
+      });
+    } else {
+      setSelectedTask(null);
+    }
+  }, [selectedTaskId]);
+
+  // Filter messages based on selected task
+  const filteredMessages = useMemo(() => {
+    if (!selectedTaskId) {
+      return messages;
+    }
+    return messages.filter(msg =>
+      msg.relatedTaskIds && msg.relatedTaskIds.includes(selectedTaskId)
+    );
+  }, [messages, selectedTaskId]);
 
   const loadMessages = async () => {
     try {
@@ -103,9 +130,43 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
         </p>
       </div>
 
+      {/* Magic Filter Banner */}
+      {selectedTask && (
+        <div className="glass-dark border-b border-cyan-500/30 px-4 py-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Filter size={14} className="text-cyan-400" />
+              <span className="text-xs text-cyan-400 mono">FILTERING:</span>
+              <span className="text-xs text-slate-300 mono">{selectedTask.title}</span>
+              <span className="text-xs text-slate-600 mono">
+                ({filteredMessages.length} message{filteredMessages.length !== 1 ? 's' : ''})
+              </span>
+            </div>
+            <button
+              onClick={onClearFilter}
+              className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 rounded transition-all-smooth"
+              title="Clear filter"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 data-grid">
-        {messages.map((message) => {
+        {filteredMessages.length === 0 && selectedTask && (
+          <div className="flex items-center justify-center h-full text-center">
+            <div className="glass p-6 rounded-lg max-w-md">
+              <Filter size={32} className="text-slate-600 mx-auto mb-3" />
+              <p className="text-sm text-slate-400 mono mb-2">No messages found for this task</p>
+              <p className="text-xs text-slate-600 mono">
+                Try sending a message or <button onClick={onClearFilter} className="text-cyan-400 hover:underline">clear the filter</button>
+              </p>
+            </div>
+          </div>
+        )}
+        {filteredMessages.map((message) => {
           const isCurrentUser = message.userId === currentUser.id;
           const isTaskWorthy = (message.parsedData as any)?.isTaskWorthy;
           const confidence = (message.parsedData as any)?.confidence;

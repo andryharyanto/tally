@@ -11,6 +11,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const { socket, connected } = useSocket();
 
   useEffect(() => {
@@ -90,8 +91,15 @@ function App() {
               currentUser={currentUser}
               socket={socket}
               onTasksUpdated={handleTasksUpdated}
+              selectedTaskId={selectedTaskId}
+              onClearFilter={() => setSelectedTaskId(null)}
             />
-            <TaskBoard socket={socket} refresh={refreshCounter} />
+            <TaskBoard
+              socket={socket}
+              refresh={refreshCounter}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
+            />
           </div>
         </div>
       </div>

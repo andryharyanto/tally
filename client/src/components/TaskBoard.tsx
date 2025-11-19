@@ -19,6 +19,8 @@ import { format } from 'date-fns';
 interface TaskBoardProps {
   socket: Socket | null;
   refresh: number;
+  selectedTaskId: string | null;
+  onSelectTask: (taskId: string | null) => void;
 }
 
 const statusConfig: Record<TaskStatus, { icon: React.ReactNode; color: string; label: string }> = {
@@ -36,7 +38,7 @@ const priorityColors = {
   urgent: 'border-l-red-500',
 };
 
-export function TaskBoard({ socket, refresh }: TaskBoardProps) {
+export function TaskBoard({ socket, refresh, selectedTaskId, onSelectTask }: TaskBoardProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -209,23 +211,38 @@ export function TaskBoard({ socket, refresh }: TaskBoardProps) {
 
                   {/* Tasks */}
                   <div className="grid grid-cols-1 gap-2">
-                    {statusTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className={`glass-dark border-l-2 ${priorityColors[task.priority]} rounded p-3 hover:border-cyan-500/50 transition-all-smooth group`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <h4 className="font-medium text-slate-200 text-sm flex-1 leading-tight">
-                            {task.title}
-                          </h4>
-                          <button
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
-                            title="Delete task"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
+                    {statusTasks.map((task) => {
+                      const isSelected = selectedTaskId === task.id;
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => onSelectTask(isSelected ? null : task.id)}
+                          className={`glass-dark border-l-2 ${priorityColors[task.priority]} rounded p-3 transition-all-smooth group cursor-pointer ${
+                            isSelected
+                              ? 'border-cyan-400 bg-cyan-500/10 shadow-lg shadow-cyan-500/20'
+                              : 'hover:border-cyan-500/50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 flex-1">
+                              {isSelected && (
+                                <Filter size={12} className="text-cyan-400 flex-shrink-0" />
+                              )}
+                              <h4 className="font-medium text-slate-200 text-sm leading-tight">
+                                {task.title}
+                              </h4>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteTask(task.id);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
+                              title="Delete task"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
 
                         {/* Metadata */}
                         <div className="flex flex-wrap gap-2 mb-2">
@@ -286,7 +303,8 @@ export function TaskBoard({ socket, refresh }: TaskBoardProps) {
                           )}
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
               );
