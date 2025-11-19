@@ -1,6 +1,6 @@
 ## Summary
 
-This PR introduces a comprehensive conversational task tracker for finance teams with advanced LLM-powered features, intelligent message parsing, auto-naming/tagging with temporal filtering, and a learning system.
+This PR introduces a comprehensive conversational task tracker for finance teams with advanced LLM-powered features, intelligent message parsing, auto-naming/tagging with temporal filtering, learning system, and a complete session management system for context preservation across development sessions.
 
 ## Key Features
 
@@ -40,6 +40,15 @@ This PR introduces a comprehensive conversational task tracker for finance teams
 - **Fallback Logic**: Tries metadata first, then title parsing, then due date
 - **Finance-Friendly**: Perfect for tracking monthly close, quarterly reviews, and fiscal periods
 
+### 📚 Session Management System
+- **Context Preservation**: Zero context loss between Claude Code sessions
+- **Hierarchical Files**: CONTEXT.md (current state), INDEX.md (history), ARCHITECTURE.md (design)
+- **Automatic Session Notes**: Claude maintains running logs during development
+- **Session Lifecycle**: Start → Develop → Wrap with automatic synthesis
+- **Quick Onboarding**: New developers read CONTEXT.md and get up to speed in 30 minutes
+- **Searchable History**: Find past decisions and learnings instantly
+- **Automation Scripts**: session-start.sh and session-wrap.sh for manual use
+
 ## Example Usage
 
 ### Natural Language Task Creation
@@ -68,6 +77,29 @@ This PR introduces a comprehensive conversational task tracker for finance teams
 Filter all Q4 2025 tasks: #2025-10, #2025-11, #2025-12
 ```
 
+### Session Management
+```
+User: "Start new session on tag management UI"
+
+Claude:
+✅ Context loaded!
+- Auto-naming: Complete
+- Month tags: Implemented
+- Next: Tag management UI
+Ready to begin!
+
+[Development happens with automatic note-taking]
+
+User: "Wrap session"
+
+Claude:
+✅ Session synthesized
+✅ CONTEXT.md updated
+✅ INDEX.md updated
+📊 3 goals completed, 7 files changed
+📌 Next: Apply learning patterns
+```
+
 ## Technical Implementation
 
 ### Backend
@@ -89,6 +121,14 @@ Filter all Q4 2025 tasks: #2025-10, #2025-11, #2025-12
 - **tags Column**: Added to tasks table for auto-generated and user-defined tags
 - **task_name_corrections Table**: Stores learning data with workflow context
 - **Indexes**: Optimized for workflow and temporal queries
+
+### Session Management
+- **.session/CONTEXT.md**: Current project state (always read first)
+- **.session/INDEX.md**: Session history with searchable metadata
+- **.session/ARCHITECTURE.md**: System design reference (15+ pages)
+- **.session/sessions/**: Individual session notes with full details
+- **.session/scripts/**: Automation for session start/wrap
+- **Hierarchical Context**: Progressive detail from high-level to specifics
 
 ## Design System
 - **Palantir-Inspired UI**: Dark theme with cyan accents and monospace fonts
@@ -112,6 +152,8 @@ All code compiles successfully:
 - ✅ Client TypeScript build passing
 - ✅ Vite production build successful
 - ✅ API key configured and ready
+- ✅ Session management system tested with sample session
+- ✅ Context files validated and structured
 
 ## Security
 
@@ -127,7 +169,16 @@ All code compiles successfully:
 
 ## Future Enhancements
 
+### Task Management
 - ML-based naming using correction patterns
 - Workflow-specific learning models
 - Bulk rename/retag operations
 - Tag suggestions based on task content
+- Tag management UI with filter and editor
+
+### Session Management
+- Automated CONTEXT.md synthesis with AI
+- Session duration tracking and analytics
+- Git integration (auto-commit on wrap)
+- Tag-based session search
+- Session analytics dashboard
