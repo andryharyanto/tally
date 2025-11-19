@@ -252,6 +252,14 @@ export function TaskBoard({ socket, refresh, selectedTaskId, onSelectTask }: Tas
                           <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded mono border border-cyan-500/30">
                             {task.workflowType.replace(/-/g, '_').toUpperCase()}
                           </span>
+                          {task.tags && task.tags.length > 0 && task.tags.map((tag, idx) => (
+                            <span
+                              key={idx}
+                              className="text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded mono border border-purple-500/30"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
                         </div>
 
                         {/* Details */}

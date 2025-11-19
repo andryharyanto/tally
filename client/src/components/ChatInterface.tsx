@@ -26,7 +26,7 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated, selectedTas
 
   useEffect(() => {
     if (socket) {
-      socket.on('message:new', (data) => {
+      socket.on('message:new', () => {
         loadMessages();
       });
 

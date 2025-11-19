@@ -7,9 +7,9 @@ export class TaskModel {
     const stmt = db.prepare(`
       INSERT INTO tasks (
         id, title, description, status, priority, workflow_type,
-        assignees, deadline, blocked_by, metadata, created_by,
+        assignees, deadline, blocked_by, metadata, tags, created_by,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -23,6 +23,7 @@ export class TaskModel {
       task.deadline || null,
       task.blockedBy || null,
       JSON.stringify(task.metadata),
+      JSON.stringify(task.tags || []),
       task.createdBy,
       now,
       now
@@ -114,6 +115,10 @@ export class TaskModel {
       fields.push('metadata = ?');
       values.push(JSON.stringify(updates.metadata));
     }
+    if (updates.tags !== undefined) {
+      fields.push('tags = ?');
+      values.push(JSON.stringify(updates.tags));
+    }
 
     values.push(id);
     const stmt = db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`);
@@ -140,6 +145,7 @@ export class TaskModel {
       deadline: row.deadline,
       blockedBy: row.blocked_by,
       metadata: JSON.parse(row.metadata),
+      tags: row.tags ? JSON.parse(row.tags) : [],
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at

@@ -19,6 +19,7 @@ export interface Task {
   deadline?: string;
   blockedBy?: string; // description of blocker
   metadata: Record<string, any>; // workflow-specific data
+  tags?: string[]; // auto-generated and user-defined tags
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -40,7 +41,7 @@ export interface Message {
 
 // Parsed data from messages
 export interface ParsedTaskData {
-  action?: 'create' | 'update' | 'complete' | 'block' | 'handoff' | 'comment';
+  action?: 'create' | 'update' | 'complete' | 'block' | 'handoff' | 'comment' | 'rename' | 'retag';
   taskTitle?: string;
   assignees?: string[];
   deadline?: string;

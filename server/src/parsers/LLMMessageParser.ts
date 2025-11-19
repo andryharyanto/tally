@@ -11,16 +11,20 @@ export interface ParseResult extends ParsedTaskData {
   messageType?: 'task' | 'comment' | 'question' | 'observation' | 'conversation';
   taskReference?: string; // Keywords to find related task
   commentText?: string; // Comment to add to existing task
+  newTaskTitle?: string; // New title for rename action
+  newTags?: string[]; // New tags for retag action
 }
 
 interface TaskExtractionTool {
   isTask: boolean;
   confidence: number;
   messageType: 'task' | 'comment' | 'question' | 'observation' | 'conversation';
-  action?: 'create' | 'update' | 'complete' | 'block' | 'handoff' | 'comment';
+  action?: 'create' | 'update' | 'complete' | 'block' | 'handoff' | 'comment' | 'rename' | 'retag';
   taskTitle?: string;
   taskReference?: string;
   commentText?: string;
+  newTaskTitle?: string;
+  newTags?: string[];
   assigneeNames?: string[];
   deadline?: string;
   status?: TaskStatus;
@@ -88,8 +92,8 @@ export class LLMMessageParser {
               },
               action: {
                 type: 'string',
-                enum: ['create', 'update', 'complete', 'block', 'handoff', 'comment'],
-                description: 'The action: create=new task, update=modify existing, complete=mark done, block=mark as blocked, handoff=reassign, comment=add note'
+                enum: ['create', 'update', 'complete', 'block', 'handoff', 'comment', 'rename', 'retag'],
+                description: 'The action: create=new task, update=modify existing, complete=mark done, block=mark as blocked, handoff=reassign, comment=add note, rename=change task title, retag=change task tags'
               },
               taskTitle: {
                 type: 'string',
@@ -102,6 +106,15 @@ export class LLMMessageParser {
               commentText: {
                 type: 'string',
                 description: 'For comments/questions/observations: the actual comment text to add to the related task'
+              },
+              newTaskTitle: {
+                type: 'string',
+                description: 'For rename action: the new title the user wants for the task'
+              },
+              newTags: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'For retag action: the new tags the user wants for the task'
               },
               assigneeNames: {
                 type: 'array',
@@ -191,6 +204,11 @@ IMPORTANT GUIDANCE:
    - "Generated invoice for TechCorp $25k" ✓
    - "Blocked on payment from Acme" ✓
 
+7. RENAME/RETAG ACTIONS:
+   - "rename the Humana invoice to Humana Q4 Invoice" → task/rename, taskReference: "Humana invoice", newTaskTitle: "Humana Q4 Invoice"
+   - "tag the TechCorp payment as urgent and high-value" → task/retag, taskReference: "TechCorp payment", newTags: ["urgent", "high-value"]
+   - "change the title to October Financial Close" → task/rename, newTaskTitle: "October Financial Close"
+
 Examples:
 - "hey how are you" → conversation, confidence: 0.05
 - "I am starting Humana Invoice October 2025" → task/create, confidence: 0.95
@@ -241,6 +259,8 @@ Be strict: Only high confidence (0.7+) for clear, actionable work with enough de
         taskTitle: extracted.taskTitle,
         taskReference: extracted.taskReference,
         commentText: extracted.commentText,
+        newTaskTitle: extracted.newTaskTitle,
+        newTags: extracted.newTags,
         assignees,
         deadline: deadlineISO,
         status: extracted.status,

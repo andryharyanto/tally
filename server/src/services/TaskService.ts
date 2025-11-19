@@ -5,6 +5,7 @@ import { MessageModel } from '../models/Message';
 import { UserModel } from '../models/User';
 import { LLMMessageParser, ParseResult } from '../parsers/LLMMessageParser';
 import { MessageParser } from '../parsers/MessageParser';
+import { TaskNamingService } from './TaskNamingService';
 
 export class TaskService {
   static async processMessage(userId: string, content: string): Promise<{
@@ -137,6 +138,28 @@ export class TaskService {
         if (relatedTasks.length > 0) {
           message.relatedTaskIds = relatedTasks.slice(0, 1).map(t => t.id);
         }
+      } else if (parseResult.action === 'rename' && parseResult.taskReference && parseResult.newTaskTitle) {
+        // Handle rename action
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          const task = relatedTasks[0];
+          const updated = this.renameTask(task.id, parseResult.newTaskTitle, content, task.title, task.tags || []);
+          if (updated) {
+            tasks.push(updated);
+            message.relatedTaskIds = [updated.id];
+          }
+        }
+      } else if (parseResult.action === 'retag' && parseResult.taskReference && parseResult.newTags) {
+        // Handle retag action
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          const task = relatedTasks[0];
+          const updated = this.retagTask(task.id, parseResult.newTags, content, task.title, task.tags || []);
+          if (updated) {
+            tasks.push(updated);
+            message.relatedTaskIds = [updated.id];
+          }
+        }
       }
     }
 
@@ -151,9 +174,18 @@ export class TaskService {
   }
 
   static createTask(userId: string, parsedData: ParsedTaskData): Task {
+    // Use TaskNamingService to enhance title and auto-generate tags
+    const namingResult = TaskNamingService.enhanceTaskName(
+      parsedData.taskTitle || 'Untitled task',
+      parsedData.workflowType || 'general',
+      parsedData.metadata || {}
+    );
+
+    console.log('Auto-naming result:', namingResult);
+
     const task: Omit<Task, 'createdAt' | 'updatedAt'> = {
       id: uuidv4(),
-      title: parsedData.taskTitle || 'Untitled task',
+      title: namingResult.enhancedTitle,
       description: undefined,
       status: parsedData.status || 'todo',
       priority: parsedData.priority || 'medium',
@@ -162,6 +194,7 @@ export class TaskService {
       deadline: parsedData.deadline,
       blockedBy: parsedData.blockedBy,
       metadata: parsedData.metadata || {},
+      tags: namingResult.tags,
       createdBy: userId
     };
 
@@ -291,5 +324,57 @@ export class TaskService {
 
   static deleteTask(id: string): boolean {
     return TaskModel.delete(id);
+  }
+
+  static renameTask(
+    taskId: string,
+    newTitle: string,
+    userMessage: string,
+    originalTitle: string,
+    originalTags: string[]
+  ): Task | null {
+    const task = TaskModel.findById(taskId);
+    if (!task) {
+      return null;
+    }
+
+    // Record the correction for learning
+    TaskNamingService.recordCorrection(
+      originalTitle,
+      newTitle,
+      task.workflowType,
+      originalTags,
+      originalTags, // Tags unchanged in rename
+      userMessage
+    );
+
+    // Update the task
+    return TaskModel.update(taskId, { title: newTitle });
+  }
+
+  static retagTask(
+    taskId: string,
+    newTags: string[],
+    userMessage: string,
+    originalTitle: string,
+    originalTags: string[]
+  ): Task | null {
+    const task = TaskModel.findById(taskId);
+    if (!task) {
+      return null;
+    }
+
+    // Record the correction for learning
+    TaskNamingService.recordCorrection(
+      originalTitle,
+      originalTitle, // Title unchanged in retag
+      task.workflowType,
+      originalTags,
+      newTags,
+      userMessage
+    );
+
+    // Update the task
+    return TaskModel.update(taskId, { tags: newTags });
   }
 }

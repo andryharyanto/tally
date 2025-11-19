@@ -81,4 +81,92 @@ router.delete('/:id', (req, res) => {
   }
 });
 
+// Rename task
+router.patch('/:id/rename', (req, res) => {
+  try {
+    const { newTitle, userMessage, originalTitle, originalTags } = req.body;
+
+    if (!newTitle) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'newTitle is required'
+      };
+      return res.status(400).json(response);
+    }
+
+    const task = TaskService.renameTask(
+      req.params.id,
+      newTitle,
+      userMessage || 'Manual rename via API',
+      originalTitle || '',
+      originalTags || []
+    );
+
+    if (!task) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Task not found'
+      };
+      return res.status(404).json(response);
+    }
+
+    const response: ApiResponse = {
+      success: true,
+      data: task
+    };
+
+    res.json(response);
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+    res.status(500).json(response);
+  }
+});
+
+// Retag task
+router.patch('/:id/retag', (req, res) => {
+  try {
+    const { newTags, userMessage, originalTitle, originalTags } = req.body;
+
+    if (!newTags || !Array.isArray(newTags)) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'newTags array is required'
+      };
+      return res.status(400).json(response);
+    }
+
+    const task = TaskService.retagTask(
+      req.params.id,
+      newTags,
+      userMessage || 'Manual retag via API',
+      originalTitle || '',
+      originalTags || []
+    );
+
+    if (!task) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Task not found'
+      };
+      return res.status(404).json(response);
+    }
+
+    const response: ApiResponse = {
+      success: true,
+      data: task
+    };
+
+    res.json(response);
+  } catch (error) {
+    const response: ApiResponse = {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+    res.status(500).json(response);
+  }
+});
+
 export default router;
