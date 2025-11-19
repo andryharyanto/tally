@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Terminal } from 'lucide-react';
 import { Message, User } from '../types';
 import { api } from '../services/api';
 import { Socket } from 'socket.io-client';
@@ -89,15 +89,26 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg">
-      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-500 to-purple-600">
-        <h2 className="text-xl font-bold text-white">Team Chat</h2>
-        <p className="text-sm text-blue-100">Describe work in your own words</p>
+    <div className="flex flex-col h-full glass rounded-lg overflow-hidden border border-cyan-500/20">
+      {/* Header */}
+      <div className="glass-dark border-b border-cyan-500/20 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Terminal size={16} className="text-cyan-400" />
+          <h2 className="text-sm font-semibold text-cyan-400 mono tracking-wider">
+            COMMAND INTERFACE
+          </h2>
+        </div>
+        <p className="text-xs text-slate-500 mt-1 mono">
+          Natural language task management
+        </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 data-grid">
         {messages.map((message) => {
           const isCurrentUser = message.userId === currentUser.id;
+          const isTaskWorthy = (message.parsedData as any)?.isTaskWorthy;
+          const confidence = (message.parsedData as any)?.confidence;
 
           return (
             <div
@@ -105,28 +116,86 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
               className={`flex ${isCurrentUser ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[70%] rounded-lg p-3 ${
+                className={`max-w-[80%] transition-all-smooth ${
                   isCurrentUser
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
+                    ? 'glass-dark border border-cyan-500/30'
+                    : 'glass border border-slate-700/30'
+                } rounded-lg p-3`}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm">{message.userName}</span>
-                  <span className={`text-xs ${isCurrentUser ? 'text-blue-100' : 'text-gray-500'}`}>
+                {/* Message header */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-xs font-semibold mono ${
+                    isCurrentUser ? 'text-cyan-400' : 'text-slate-400'
+                  }`}>
+                    {isCurrentUser ? '>' : '•'} {message.userName}
+                  </span>
+                  <span className="text-xs text-slate-600 mono">
                     {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
                   </span>
                 </div>
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                {message.parsedData && message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
-                  <div className={`mt-2 text-xs ${isCurrentUser ? 'text-blue-100' : 'text-gray-600'}`}>
-                    <span className="font-medium">
-                      {message.parsedData.action === 'create' && '✓ Created task'}
-                      {message.parsedData.action === 'update' && '✓ Updated task'}
-                      {message.parsedData.action === 'complete' && '✓ Completed task'}
-                      {message.parsedData.action === 'block' && '⚠ Task blocked'}
-                      {message.parsedData.action === 'handoff' && '→ Handed off task'}
-                    </span>
+
+                {/* Message content */}
+                <p className="text-sm text-slate-200 leading-relaxed">
+                  {message.content}
+                </p>
+
+                {/* Parse result indicators */}
+                {message.parsedData && (
+                  <div className="mt-3 pt-3 border-t border-slate-700/50">
+                    {/* Non-task indicator */}
+                    {isTaskWorthy === false && (
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                        <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
+                        <span>CONVERSATION</span>
+                      </div>
+                    )}
+
+                    {/* Task created indicator */}
+                    {message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-xs mono">
+                          <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full glow-cyan"></div>
+                          <span className="text-cyan-400">
+                            {message.parsedData.action === 'create' && 'TASK_CREATED'}
+                            {message.parsedData.action === 'update' && 'TASK_UPDATED'}
+                            {message.parsedData.action === 'complete' && 'TASK_COMPLETED'}
+                            {message.parsedData.action === 'block' && 'TASK_BLOCKED'}
+                            {message.parsedData.action === 'handoff' && 'TASK_TRANSFERRED'}
+                          </span>
+                          {message.relatedTaskIds.length > 1 && (
+                            <span className="text-slate-500">
+                              [{message.relatedTaskIds.length}]
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Confidence score */}
+                        {confidence !== undefined && isTaskWorthy && (
+                          <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                            <span>CONFIDENCE:</span>
+                            <div className="flex-1 max-w-[100px] h-1 bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                                style={{ width: `${confidence * 100}%` }}
+                              ></div>
+                            </div>
+                            <span>{Math.round(confidence * 100)}%</span>
+                          </div>
+                        )}
+
+                        {/* Suggestions */}
+                        {(message.parsedData as any).suggestions && (message.parsedData as any).suggestions.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <div className="text-xs text-amber-400 mono">SUGGESTIONS:</div>
+                            {(message.parsedData as any).suggestions.map((suggestion: string, idx: number) => (
+                              <div key={idx} className="text-xs text-slate-400 pl-3 mono">
+                                → {suggestion}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -136,28 +205,34 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 border-t border-gray-200">
+      {/* Input area */}
+      <div className="glass-dark border-t border-cyan-500/20 p-4">
         <div className="flex gap-2">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message... (e.g., 'Generated invoices for Acme Corp')"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={loading}
-          />
+          <div className="flex-1 relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan-500 mono text-sm">
+              &gt;
+            </div>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Enter command or describe work..."
+              className="w-full pl-8 pr-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded text-slate-200 text-sm mono focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 placeholder-slate-600 transition-all-smooth"
+              disabled={loading}
+            />
+          </div>
           <button
             onClick={handleSend}
             disabled={loading || !inputValue.trim()}
-            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all-smooth glow-blue mono text-sm font-semibold"
           >
-            <Send size={18} />
-            Send
+            <Send size={16} />
+            SEND
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Try: "Generated invoice for TechCorp" or "Waiting on payment for INV-2847"
+        <p className="text-xs text-slate-600 mt-2 mono">
+          // Try: "Generated invoice for TechCorp" or "Waiting on payment for INV-2847"
         </p>
       </div>
     </div>

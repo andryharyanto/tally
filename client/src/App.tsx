@@ -39,17 +39,17 @@ function App() {
 
   if (loading || !currentUser) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading Tally...</p>
+      <div className="flex items-center justify-center h-screen grid-bg">
+        <div className="text-center glass p-8 rounded-lg">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-cyan-500 mx-auto mb-4 glow-cyan"></div>
+          <p className="text-slate-300 mono text-sm">INITIALIZING TALLY...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-gray-100">
+    <div className="h-screen grid-bg">
       <UserSelector
         users={users}
         currentUser={currentUser}
@@ -57,25 +57,35 @@ function App() {
       />
 
       <div className="h-full flex flex-col">
-        <header className="bg-white shadow-sm border-b border-gray-200 p-4">
-          <div className="max-w-7xl mx-auto">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Tally
-            </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Your finance team's conversational program manager
-            </p>
-            {connected && (
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-green-600">Connected</span>
+        {/* Top navigation bar */}
+        <header className="glass-dark border-b border-cyan-500/20">
+          <div className="max-w-[1800px] mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold gradient-text tracking-tight mono">
+                  TALLY
+                </h1>
+                <div className="h-4 w-px bg-cyan-500/30"></div>
+                <span className="text-xs text-slate-400 mono tracking-wider">
+                  FINANCE INTELLIGENCE PLATFORM
+                </span>
               </div>
-            )}
+
+              <div className="flex items-center gap-4">
+                {connected && (
+                  <div className="flex items-center gap-2 glass px-3 py-1 rounded">
+                    <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full pulse-glow"></div>
+                    <span className="text-xs text-cyan-400 mono">CONNECTED</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-hidden p-4">
-          <div className="max-w-7xl mx-auto h-full grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Main content area */}
+        <div className="flex-1 overflow-hidden p-6">
+          <div className="max-w-[1800px] mx-auto h-full grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChatInterface
               currentUser={currentUser}
               socket={socket}
