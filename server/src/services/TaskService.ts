@@ -5,6 +5,7 @@ import { MessageModel } from '../models/Message';
 import { UserModel } from '../models/User';
 import { LLMMessageParser, ParseResult } from '../parsers/LLMMessageParser';
 import { MessageParser } from '../parsers/MessageParser';
+import { TaskNamingService } from './TaskNamingService';
 
 export class TaskService {
   static async processMessage(userId: string, content: string): Promise<{
@@ -21,20 +22,28 @@ export class TaskService {
     }
 
     // Get recent conversation context
-    const recentMessages = MessageModel.findRecent(5);
+    const recentMessages = MessageModel.findRecent(10);
     const conversationContext = recentMessages
-      .slice(-5)
+      .slice(-10)
       .map(m => `${m.userName}: ${m.content}`);
+
+    // Get recent active tasks for context
+    const recentTasks = TaskModel.findAll()
+      .filter(t => t.status !== 'completed' && t.status !== 'cancelled')
+      .slice(0, 10)
+      .map(t => ({ id: t.id, title: t.title, status: t.status }));
 
     // Parse the message with LLM (with fallback to deterministic)
     let parseResult: ParseResult;
 
     if (process.env.ANTHROPIC_API_KEY) {
       try {
-        parseResult = await LLMMessageParser.parse(content, users, conversationContext);
+        parseResult = await LLMMessageParser.parse(content, users, conversationContext, recentTasks);
         console.log('LLM Parse Result:', {
+          messageType: parseResult.messageType,
           isTaskWorthy: parseResult.isTaskWorthy,
           confidence: parseResult.confidence,
+          taskReference: parseResult.taskReference,
           reasoning: parseResult.reasoning
         });
       } catch (error) {
@@ -58,11 +67,21 @@ export class TaskService {
 
     const tasks: Task[] = [];
 
-    // Only create tasks if the message is task-worthy
-    if (parseResult.isTaskWorthy) {
+    // Handle different message types
+    if (parseResult.messageType === 'comment' || parseResult.messageType === 'question' || parseResult.messageType === 'observation') {
+      // For comments/questions/observations, try to link to existing task
+      if (parseResult.taskReference) {
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          // Link message to the most recent related task
+          message.relatedTaskIds = relatedTasks.slice(0, 1).map(t => t.id);
+          console.log(`Linked ${parseResult.messageType} to task:`, relatedTasks[0].title);
+        }
+      }
+      // Don't create new tasks for comments/questions/observations
+    } else if (parseResult.isTaskWorthy) {
       // Handle batch operations
       if (parseResult.batchItems && parseResult.batchItems.length > 1) {
-        // For now, create separate tasks for each batch item
         for (const item of parseResult.batchItems) {
           const batchTaskData = { ...parseResult, taskTitle: `${parseResult.taskTitle} - ${item}` };
           const task = this.createTask(user.id, batchTaskData);
@@ -75,7 +94,12 @@ export class TaskService {
         message.relatedTaskIds = [task.id];
       } else if (parseResult.action === 'update' || parseResult.action === 'complete' || parseResult.action === 'block') {
         // Try to find related tasks
-        const relatedTasks = this.findRelatedTasks(parseResult);
+        let relatedTasks: Task[] = [];
+        if (parseResult.taskReference) {
+          relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        } else if (parseResult.taskTitle) {
+          relatedTasks = this.findRelatedTasks(parseResult);
+        }
 
         for (const task of relatedTasks) {
           const updated = this.updateTask(task.id, parseResult);
@@ -85,14 +109,19 @@ export class TaskService {
           }
         }
 
-        // If no related tasks found, create a new one
+        // If no related tasks found and we have a clear task title, create a new one
         if (relatedTasks.length === 0 && parseResult.taskTitle) {
           const task = this.createTask(user.id, parseResult);
           tasks.push(task);
           message.relatedTaskIds = [task.id];
         }
       } else if (parseResult.action === 'handoff') {
-        const relatedTasks = this.findRelatedTasks(parseResult);
+        let relatedTasks: Task[] = [];
+        if (parseResult.taskReference) {
+          relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        } else if (parseResult.taskTitle) {
+          relatedTasks = this.findRelatedTasks(parseResult);
+        }
 
         for (const task of relatedTasks) {
           if (parseResult.assignees && parseResult.assignees.length > 0) {
@@ -101,6 +130,34 @@ export class TaskService {
               tasks.push(updated);
               message.relatedTaskIds!.push(updated.id);
             }
+          }
+        }
+      } else if (parseResult.action === 'comment' && parseResult.taskReference) {
+        // Handle explicit comments with task references
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          message.relatedTaskIds = relatedTasks.slice(0, 1).map(t => t.id);
+        }
+      } else if (parseResult.action === 'rename' && parseResult.taskReference && parseResult.newTaskTitle) {
+        // Handle rename action
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          const task = relatedTasks[0];
+          const updated = this.renameTask(task.id, parseResult.newTaskTitle, content, task.title, task.tags || []);
+          if (updated) {
+            tasks.push(updated);
+            message.relatedTaskIds = [updated.id];
+          }
+        }
+      } else if (parseResult.action === 'retag' && parseResult.taskReference && parseResult.newTags) {
+        // Handle retag action
+        const relatedTasks = this.findTasksByKeywords(parseResult.taskReference);
+        if (relatedTasks.length > 0) {
+          const task = relatedTasks[0];
+          const updated = this.retagTask(task.id, parseResult.newTags, content, task.title, task.tags || []);
+          if (updated) {
+            tasks.push(updated);
+            message.relatedTaskIds = [updated.id];
           }
         }
       }
@@ -117,9 +174,18 @@ export class TaskService {
   }
 
   static createTask(userId: string, parsedData: ParsedTaskData): Task {
+    // Use TaskNamingService to enhance title and auto-generate tags
+    const namingResult = TaskNamingService.enhanceTaskName(
+      parsedData.taskTitle || 'Untitled task',
+      parsedData.workflowType || 'general',
+      parsedData.metadata || {}
+    );
+
+    console.log('Auto-naming result:', namingResult);
+
     const task: Omit<Task, 'createdAt' | 'updatedAt'> = {
       id: uuidv4(),
-      title: parsedData.taskTitle || 'Untitled task',
+      title: namingResult.enhancedTitle,
       description: undefined,
       status: parsedData.status || 'todo',
       priority: parsedData.priority || 'medium',
@@ -128,6 +194,7 @@ export class TaskService {
       deadline: parsedData.deadline,
       blockedBy: parsedData.blockedBy,
       metadata: parsedData.metadata || {},
+      tags: namingResult.tags,
       createdBy: userId
     };
 
@@ -196,6 +263,53 @@ export class TaskService {
     return relatedTasks.slice(0, 1);
   }
 
+  static findTasksByKeywords(keywords: string): Task[] {
+    const allTasks = TaskModel.findAll();
+    const searchTerms = keywords.toLowerCase().split(/\s+/).filter(term => term.length > 2);
+
+    if (searchTerms.length === 0) {
+      return [];
+    }
+
+    // Score tasks based on keyword matches
+    const scoredTasks = allTasks.map(task => {
+      const taskTitle = task.title.toLowerCase();
+      const taskMetadata = JSON.stringify(task.metadata).toLowerCase();
+
+      let score = 0;
+
+      // Check title for exact phrase match (highest score)
+      if (taskTitle.includes(keywords.toLowerCase())) {
+        score += 100;
+      }
+
+      // Check title for individual keyword matches
+      searchTerms.forEach(term => {
+        if (taskTitle.includes(term)) {
+          score += 10;
+        }
+        if (taskMetadata.includes(term)) {
+          score += 5;
+        }
+      });
+
+      // Boost score for active tasks
+      if (task.status === 'in_progress' || task.status === 'todo') {
+        score += 2;
+      }
+
+      return { task, score };
+    });
+
+    // Filter and sort by score
+    const matchedTasks = scoredTasks
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.task);
+
+    return matchedTasks;
+  }
+
   static getAllTasks(filters?: {
     workflowType?: string;
     status?: string;
@@ -210,5 +324,57 @@ export class TaskService {
 
   static deleteTask(id: string): boolean {
     return TaskModel.delete(id);
+  }
+
+  static renameTask(
+    taskId: string,
+    newTitle: string,
+    userMessage: string,
+    originalTitle: string,
+    originalTags: string[]
+  ): Task | null {
+    const task = TaskModel.findById(taskId);
+    if (!task) {
+      return null;
+    }
+
+    // Record the correction for learning
+    TaskNamingService.recordCorrection(
+      originalTitle,
+      newTitle,
+      task.workflowType,
+      originalTags,
+      originalTags, // Tags unchanged in rename
+      userMessage
+    );
+
+    // Update the task
+    return TaskModel.update(taskId, { title: newTitle });
+  }
+
+  static retagTask(
+    taskId: string,
+    newTags: string[],
+    userMessage: string,
+    originalTitle: string,
+    originalTags: string[]
+  ): Task | null {
+    const task = TaskModel.findById(taskId);
+    if (!task) {
+      return null;
+    }
+
+    // Record the correction for learning
+    TaskNamingService.recordCorrection(
+      originalTitle,
+      originalTitle, // Title unchanged in retag
+      task.workflowType,
+      originalTags,
+      newTags,
+      userMessage
+    );
+
+    // Update the task
+    return TaskModel.update(taskId, { tags: newTags });
   }
 }

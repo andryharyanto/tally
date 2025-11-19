@@ -53,6 +53,7 @@ export function initializeDatabase() {
       deadline TEXT,
       blocked_by TEXT,
       metadata TEXT NOT NULL,
+      tags TEXT DEFAULT '[]',
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -74,12 +75,28 @@ export function initializeDatabase() {
     )
   `);
 
+  // Task name corrections table (for learning)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_name_corrections (
+      id TEXT PRIMARY KEY,
+      original_title TEXT NOT NULL,
+      corrected_title TEXT NOT NULL,
+      workflow_type TEXT NOT NULL,
+      original_tags TEXT DEFAULT '[]',
+      corrected_tags TEXT DEFAULT '[]',
+      user_message TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tasks_workflow_type ON tasks(workflow_type);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_corrections_workflow ON task_name_corrections(workflow_type);
+    CREATE INDEX IF NOT EXISTS idx_corrections_created ON task_name_corrections(created_at);
   `);
 
   console.log('Database initialized successfully');
