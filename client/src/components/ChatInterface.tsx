@@ -142,16 +142,43 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
                 {/* Parse result indicators */}
                 {message.parsedData && (
                   <div className="mt-3 pt-3 border-t border-slate-700/50">
-                    {/* Non-task indicator */}
+                    {/* Non-task indicators */}
                     {isTaskWorthy === false && (
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mono">
-                        <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
-                        <span>CONVERSATION</span>
+                      <div className="flex items-center gap-2 text-xs mono">
+                        {(message.parsedData as any).messageType === 'question' && (
+                          <>
+                            <div className="w-1.5 h-1.5 bg-amber-400 rounded-full"></div>
+                            <span className="text-amber-400">QUESTION</span>
+                          </>
+                        )}
+                        {(message.parsedData as any).messageType === 'comment' && (
+                          <>
+                            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                            <span className="text-blue-400">COMMENT</span>
+                          </>
+                        )}
+                        {(message.parsedData as any).messageType === 'observation' && (
+                          <>
+                            <div className="w-1.5 h-1.5 bg-purple-400 rounded-full"></div>
+                            <span className="text-purple-400">OBSERVATION</span>
+                          </>
+                        )}
+                        {(message.parsedData as any).messageType === 'conversation' && (
+                          <>
+                            <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
+                            <span className="text-slate-500">CONVERSATION</span>
+                          </>
+                        )}
+                        {message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
+                          <span className="text-xs text-slate-600 mono">
+                            → Linked to task
+                          </span>
+                        )}
                       </div>
                     )}
 
-                    {/* Task created indicator */}
-                    {message.relatedTaskIds && message.relatedTaskIds.length > 0 && (
+                    {/* Task created/updated indicator */}
+                    {message.relatedTaskIds && message.relatedTaskIds.length > 0 && isTaskWorthy && (
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 text-xs mono">
                           <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full glow-cyan"></div>
@@ -161,6 +188,7 @@ export function ChatInterface({ currentUser, socket, onTasksUpdated }: ChatInter
                             {message.parsedData.action === 'complete' && 'TASK_COMPLETED'}
                             {message.parsedData.action === 'block' && 'TASK_BLOCKED'}
                             {message.parsedData.action === 'handoff' && 'TASK_TRANSFERRED'}
+                            {message.parsedData.action === 'comment' && 'COMMENT_ADDED'}
                           </span>
                           {message.relatedTaskIds.length > 1 && (
                             <span className="text-slate-500">

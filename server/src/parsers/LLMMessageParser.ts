@@ -8,13 +8,19 @@ export interface ParseResult extends ParsedTaskData {
   suggestions?: string[];
   batchItems?: string[];
   reasoning?: string;
+  messageType?: 'task' | 'comment' | 'question' | 'observation' | 'conversation';
+  taskReference?: string; // Keywords to find related task
+  commentText?: string; // Comment to add to existing task
 }
 
 interface TaskExtractionTool {
   isTask: boolean;
   confidence: number;
+  messageType: 'task' | 'comment' | 'question' | 'observation' | 'conversation';
   action?: 'create' | 'update' | 'complete' | 'block' | 'handoff' | 'comment';
   taskTitle?: string;
+  taskReference?: string;
+  commentText?: string;
   assigneeNames?: string[];
   deadline?: string;
   status?: TaskStatus;
@@ -43,7 +49,8 @@ export class LLMMessageParser {
   static async parse(
     content: string,
     users: Array<{ id: string; name: string }>,
-    conversationContext?: string[]
+    conversationContext?: string[],
+    recentTasks?: Array<{ id: string; title: string; status: string }>
   ): Promise<ParseResult> {
     try {
       const client = this.getClient();
@@ -53,45 +60,62 @@ export class LLMMessageParser {
         ? `\n\nRecent conversation:\n${conversationContext.join('\n')}`
         : '';
 
+      const tasksStr = recentTasks && recentTasks.length > 0
+        ? `\n\nRecent active tasks:\n${recentTasks.map(t => `- "${t.title}" (${t.status})`).join('\n')}`
+        : '';
+
       const response = await client.messages.create({
         model: 'claude-3-5-sonnet-20241022',
         max_tokens: 1024,
         tools: [{
           name: 'extract_task_info',
-          description: 'Extracts task information from a message in a finance team chat. Determines if the message is work-related or just conversation.',
+          description: 'Analyzes a message in a finance team chat to determine intent and extract task information. Understands nuances like questions, comments, observations, and actual work items.',
           input_schema: {
             type: 'object',
             properties: {
               isTask: {
                 type: 'boolean',
-                description: 'Whether this message describes actual work that should be tracked as a task'
+                description: 'Whether this requires tracking (new task, update, or comment on existing work). False for general questions, observations, or casual conversation.'
               },
               confidence: {
                 type: 'number',
-                description: 'Confidence score from 0.0 to 1.0 that this is a task'
+                description: 'Confidence score from 0.0 to 1.0. Use low scores (0.1-0.3) for vague/unclear messages, medium (0.4-0.6) for possible tasks, high (0.7-1.0) for clear actionable work.'
+              },
+              messageType: {
+                type: 'string',
+                enum: ['task', 'comment', 'question', 'observation', 'conversation'],
+                description: 'task=new work to create/complete, comment=note about existing task, question=asking for help/clarification, observation=noting an issue, conversation=casual chat'
               },
               action: {
                 type: 'string',
                 enum: ['create', 'update', 'complete', 'block', 'handoff', 'comment'],
-                description: 'The action being described'
+                description: 'The action: create=new task, update=modify existing, complete=mark done, block=mark as blocked, handoff=reassign, comment=add note'
               },
               taskTitle: {
                 type: 'string',
-                description: 'A clear, concise title for the task'
+                description: 'Clear, concise title for NEW tasks. Omit for comments/questions about existing tasks.'
+              },
+              taskReference: {
+                type: 'string',
+                description: 'For comments/questions/updates: keywords from the task being referenced (e.g., "Humana invoice", "TechCorp payment", "October close")'
+              },
+              commentText: {
+                type: 'string',
+                description: 'For comments/questions/observations: the actual comment text to add to the related task'
               },
               assigneeNames: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Names of people assigned to or mentioned in relation to this task'
+                description: 'Names of people assigned or mentioned'
               },
               deadline: {
                 type: 'string',
-                description: 'Natural language deadline if mentioned (e.g., "tomorrow", "Friday", "next week")'
+                description: 'Natural language deadline if mentioned (e.g., "tomorrow", "Friday", "October 31")'
               },
               status: {
                 type: 'string',
                 enum: ['todo', 'in_progress', 'blocked', 'completed', 'cancelled'],
-                description: 'Current status of the task'
+                description: 'Task status'
               },
               priority: {
                 type: 'string',
@@ -100,58 +124,89 @@ export class LLMMessageParser {
               },
               workflowType: {
                 type: 'string',
-                description: 'Type of workflow: invoice-generation, payment-reconciliation, monthly-close, annual-planning, model-change, vendor-onboarding, or general'
+                description: 'invoice-generation, payment-reconciliation, monthly-close, annual-planning, model-change, vendor-onboarding, or general'
               },
               blockedBy: {
                 type: 'string',
-                description: 'What is blocking this task if it\'s blocked'
+                description: 'What is blocking this task if blocked'
               },
               batchItems: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'If this is a batch operation (e.g., "invoices for Acme and TechCorp"), list the separate items'
+                description: 'If multiple items mentioned (e.g., "invoices for Acme and TechCorp"), list them separately'
               },
               metadata: {
                 type: 'object',
-                description: 'Finance-specific metadata like invoiceNumber, customerName, amount, etc.'
+                description: 'Finance metadata: invoiceNumber, customerName, amount, etc.'
               },
               reasoning: {
                 type: 'string',
-                description: 'Brief explanation of why you classified it this way'
+                description: 'Brief explanation of your classification'
               }
             },
-            required: ['isTask', 'confidence', 'reasoning']
+            required: ['isTask', 'confidence', 'messageType', 'reasoning']
           }
         }],
         messages: [{
           role: 'user',
-          content: `You are analyzing a message in a finance team's task management chat.
+          content: `You are analyzing a message in a finance team's task tracker chat. Your job is to understand INTENT and NUANCE.
 
 Context:
-- Available team members: ${userList}
-- Finance workflows: invoice generation, payment reconciliation, monthly close, annual planning, model change control, vendor onboarding${contextStr}
+- Team members: ${userList}
+- Finance workflows: invoice generation, payment reconciliation, monthly close, annual planning, model change control, vendor onboarding${contextStr}${tasksStr}
 
-Analyze this message and extract task information:
+Analyze this message:
 "${content}"
 
-Determine:
-1. Is this actual work to track (isTask: true) or just conversation (isTask: false)?
-2. If it's work, extract all relevant details
-3. If multiple items are mentioned (e.g., "invoices for Acme and TechCorp"), identify them as batchItems
-4. Provide a confidence score (0.0-1.0)
+IMPORTANT GUIDANCE:
+
+1. MESSAGE TYPES:
+   - **task**: Clear actionable work ("I'm starting the Humana invoice", "Generate TechCorp invoice")
+   - **comment**: Observation about existing work ("the invoice has some issues", "this looks good")
+   - **question**: Asking for help ("how can I not do this?", "what's the amount?", "is this ready?")
+   - **observation**: Noting a problem without clear action ("will have some issue", "something seems off")
+   - **conversation**: Casual chat ("hey", "thanks", "good morning")
+
+2. VAGUE MESSAGES (give LOW confidence 0.1-0.3):
+   - "combine the invoice with october" - UNCLEAR what action to take
+   - "the invoice" - INCOMPLETE, no action
+   - Missing critical details (what invoice? do what?)
+
+3. OBSERVATIONS vs TASKS:
+   - "invoice will have some issue" → observation (0.3) or question if asking for help
+   - "fix the invoice issue" → task (0.9)
+
+4. QUESTIONS ABOUT WORK:
+   - "how can I not do this?" → question about existing work (0.5)
+   - Use taskReference to link to related task
+   - Set commentText to the question itself
+
+5. COMMENTS ON EXISTING WORK:
+   - If referencing existing work, use messageType='comment'
+   - Set taskReference with keywords to find the task
+   - Put the actual comment in commentText
+
+6. CLEAR TASKS (high confidence 0.8-1.0):
+   - "I am starting Humana Invoice October 2025" ✓
+   - "Generated invoice for TechCorp $25k" ✓
+   - "Blocked on payment from Acme" ✓
 
 Examples:
-- "hey how are you" → isTask: false, confidence: 0.1
-- "Generated invoice for TechCorp $25k" → isTask: true, confidence: 0.95, action: create
-- "Waiting on payment for INV-2847" → isTask: true, confidence: 0.9, action: block
-- "Invoices for Acme and TechCorp" → isTask: true, batchItems: ["Acme", "TechCorp"]`
+- "hey how are you" → conversation, confidence: 0.05
+- "I am starting Humana Invoice October 2025" → task/create, confidence: 0.95
+- "combine the invoice with october" → observation, confidence: 0.2 (too vague)
+- "invoice will have some issue" → observation, confidence: 0.3
+- "how can I not do this?" → question, confidence: 0.5, taskReference from context
+- "the TechCorp invoice looks wrong" → comment, confidence: 0.7, taskReference: "TechCorp invoice"
+- "Waiting on Acme payment" → task/block, confidence: 0.9
+
+Be strict: Only high confidence (0.7+) for clear, actionable work with enough details.`
         }]
       });
 
       // Extract tool use response
       const toolUse = response.content.find(c => c.type === 'tool_use');
       if (!toolUse || toolUse.type !== 'tool_use') {
-        // Fallback to deterministic parsing
         console.warn('No tool use in response, falling back to deterministic parser');
         return this.fallbackParse(content, users);
       }
@@ -181,8 +236,11 @@ Examples:
       const result: ParseResult = {
         confidence: extracted.confidence,
         isTaskWorthy: extracted.isTask && extracted.confidence >= 0.6,
+        messageType: extracted.messageType,
         action: extracted.action,
         taskTitle: extracted.taskTitle,
+        taskReference: extracted.taskReference,
+        commentText: extracted.commentText,
         assignees,
         deadline: deadlineISO,
         status: extracted.status,
@@ -206,7 +264,6 @@ Examples:
 
     } catch (error) {
       console.error('LLM parsing error:', error);
-      // Fallback to deterministic parsing
       return this.fallbackParse(content, users);
     }
   }
@@ -225,19 +282,24 @@ Examples:
       return {
         confidence: 0.1,
         isTaskWorthy: false,
+        messageType: 'conversation',
         reasoning: 'Detected as conversational greeting/acknowledgment'
       };
     }
 
     // Simple task detection
-    const hasWorkKeywords = /\b(invoice|payment|reconcil|budget|complete|finish|start|generate)\b/i.test(content);
+    const hasWorkKeywords = /\b(invoice|payment|reconcil|budget|complete|finish|start|starting|generate)\b/i.test(content);
 
     if (hasWorkKeywords) {
+      const hasAction = /\b(start|starting|begin|create|generate|finish|complete)\b/i.test(content);
+
       return {
-        confidence: 0.7,
-        isTaskWorthy: true,
-        action: 'create',
-        taskTitle: content.substring(0, 100),
+        confidence: hasAction ? 0.7 : 0.5,
+        isTaskWorthy: hasAction,
+        messageType: hasAction ? 'task' : 'observation',
+        action: hasAction ? 'create' : 'comment',
+        taskTitle: hasAction ? content.substring(0, 100) : undefined,
+        commentText: hasAction ? undefined : content,
         assignees: [],
         metadata: {},
         reasoning: 'Detected work-related keywords, using fallback parser'
@@ -245,8 +307,9 @@ Examples:
     }
 
     return {
-      confidence: 0.5,
+      confidence: 0.3,
       isTaskWorthy: false,
+      messageType: 'observation',
       reasoning: 'Ambiguous message, defaulting to non-task'
     };
   }
