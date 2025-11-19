@@ -9,6 +9,7 @@ import {
   Filter,
   X,
   Trash2,
+  Grid3x3,
 } from 'lucide-react';
 import { Task, User, Workflow, TaskStatus } from '../types';
 import { api } from '../services/api';
@@ -20,27 +21,19 @@ interface TaskBoardProps {
   refresh: number;
 }
 
-const statusIcons: Record<TaskStatus, React.ReactNode> = {
-  todo: <Circle size={18} className="text-gray-400" />,
-  in_progress: <Clock size={18} className="text-blue-500" />,
-  blocked: <AlertCircle size={18} className="text-red-500" />,
-  completed: <CheckCircle2 size={18} className="text-green-500" />,
-  cancelled: <X size={18} className="text-gray-400" />,
-};
-
-const statusColors: Record<TaskStatus, string> = {
-  todo: 'border-l-gray-400',
-  in_progress: 'border-l-blue-500',
-  blocked: 'border-l-red-500',
-  completed: 'border-l-green-500',
-  cancelled: 'border-l-gray-400',
+const statusConfig: Record<TaskStatus, { icon: React.ReactNode; color: string; label: string }> = {
+  todo: { icon: <Circle size={14} />, color: 'text-slate-500', label: 'PENDING' },
+  in_progress: { icon: <Clock size={14} />, color: 'text-cyan-400', label: 'ACTIVE' },
+  blocked: { icon: <AlertCircle size={14} />, color: 'text-red-400', label: 'BLOCKED' },
+  completed: { icon: <CheckCircle2 size={14} />, color: 'text-emerald-400', label: 'COMPLETE' },
+  cancelled: { icon: <X size={14} />, color: 'text-slate-600', label: 'CANCELLED' },
 };
 
 const priorityColors = {
-  low: 'bg-gray-100 text-gray-700',
-  medium: 'bg-yellow-100 text-yellow-700',
-  high: 'bg-orange-100 text-orange-700',
-  urgent: 'bg-red-100 text-red-700',
+  low: 'border-l-slate-600',
+  medium: 'border-l-amber-500',
+  high: 'border-l-orange-500',
+  urgent: 'border-l-red-500',
 };
 
 export function TaskBoard({ socket, refresh }: TaskBoardProps) {
@@ -117,7 +110,7 @@ export function TaskBoard({ socket, refresh }: TaskBoardProps) {
     return true;
   });
 
-  const groupedTasks = filteredTasks.reduce((acc, task) => {
+  const tasksByStatus = filteredTasks.reduce((acc, task) => {
     const status = task.status;
     if (!acc[status]) {
       acc[status] = [];
@@ -128,142 +121,170 @@ export function TaskBoard({ socket, refresh }: TaskBoardProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-gray-500">Loading tasks...</div>
+      <div className="flex items-center justify-center h-full glass rounded-lg border border-cyan-500/20">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-cyan-500 mx-auto mb-3 glow-cyan"></div>
+          <p className="text-slate-400 mono text-sm">LOADING TASKS...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg">
-      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-purple-500 to-pink-600">
-        <h2 className="text-xl font-bold text-white">Shared Task Board</h2>
-        <p className="text-sm text-purple-100">Everyone's work in one place</p>
-      </div>
+    <div className="flex flex-col h-full glass rounded-lg overflow-hidden border border-cyan-500/20">
+      {/* Header */}
+      <div className="glass-dark border-b border-cyan-500/20 px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Grid3x3 size={16} className="text-cyan-400" />
+            <h2 className="text-sm font-semibold text-cyan-400 mono tracking-wider">
+              OPERATIONS BOARD
+            </h2>
+          </div>
+          <div className="text-xs text-slate-500 mono">
+            {filteredTasks.length} ACTIVE
+          </div>
+        </div>
 
-      <div className="p-4 border-b border-gray-200 flex gap-4 items-center bg-gray-50">
-        <Filter size={18} className="text-gray-600" />
+        {/* Filters */}
+        <div className="flex gap-2 items-center">
+          <Filter size={14} className="text-slate-600" />
 
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as TaskStatus | 'all')}
-          className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-        >
-          <option value="all">All Statuses</option>
-          <option value="todo">To Do</option>
-          <option value="in_progress">In Progress</option>
-          <option value="blocked">Blocked</option>
-          <option value="completed">Completed</option>
-        </select>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as TaskStatus | 'all')}
+            className="px-2 py-1 bg-slate-900/50 border border-slate-700/50 rounded text-xs mono text-slate-300 focus:outline-none focus:border-cyan-500/50"
+          >
+            <option value="all">ALL_STATUS</option>
+            <option value="todo">PENDING</option>
+            <option value="in_progress">ACTIVE</option>
+            <option value="blocked">BLOCKED</option>
+            <option value="completed">COMPLETE</option>
+          </select>
 
-        <select
-          value={filterWorkflow}
-          onChange={(e) => setFilterWorkflow(e.target.value)}
-          className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-        >
-          <option value="all">All Workflows</option>
-          {workflows.map((workflow) => (
-            <option key={workflow.id} value={workflow.name}>
-              {workflow.name}
-            </option>
-          ))}
-          <option value="general">General</option>
-        </select>
-
-        <div className="ml-auto text-sm text-gray-600">
-          {filteredTasks.length} {filteredTasks.length === 1 ? 'task' : 'tasks'}
+          <select
+            value={filterWorkflow}
+            onChange={(e) => setFilterWorkflow(e.target.value)}
+            className="px-2 py-1 bg-slate-900/50 border border-slate-700/50 rounded text-xs mono text-slate-300 focus:outline-none focus:border-cyan-500/50"
+          >
+            <option value="all">ALL_WORKFLOWS</option>
+            {workflows.map((workflow) => (
+              <option key={workflow.id} value={workflow.name}>
+                {workflow.name.toUpperCase().replace(/\s+/g, '_')}
+              </option>
+            ))}
+            <option value="general">GENERAL</option>
+          </select>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      {/* Task Grid */}
+      <div className="flex-1 overflow-y-auto p-4 data-grid">
         {filteredTasks.length === 0 ? (
-          <div className="text-center text-gray-500 py-8">
-            No tasks yet. Start a conversation to create tasks!
+          <div className="text-center text-slate-600 py-12 mono text-sm">
+            // NO ACTIVE TASKS
+            <div className="text-xs text-slate-700 mt-2">
+              Start a conversation to create tasks
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-6">
             {(['todo', 'in_progress', 'blocked', 'completed'] as TaskStatus[]).map((status) => {
-              const statusTasks = groupedTasks[status] || [];
-              if (statusTasks.length === 0 && filterStatus !== 'all') return null;
+              const statusTasks = tasksByStatus[status] || [];
+              if (statusTasks.length === 0) return null;
+
+              const config = statusConfig[status];
 
               return (
-                <div key={status} className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-4">
-                    {statusIcons[status]}
-                    <h3 className="font-semibold text-gray-700 capitalize">
-                      {status.replace('_', ' ')} ({statusTasks.length})
+                <div key={status} className="space-y-2">
+                  {/* Status header */}
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-700/30">
+                    <div className={`${config.color}`}>{config.icon}</div>
+                    <h3 className={`text-xs font-semibold mono tracking-wider ${config.color}`}>
+                      {config.label}
                     </h3>
+                    <div className="flex-1 h-px bg-slate-700/30"></div>
+                    <span className="text-xs text-slate-600 mono">{statusTasks.length}</span>
                   </div>
 
-                  <div className="space-y-3">
+                  {/* Tasks */}
+                  <div className="grid grid-cols-1 gap-2">
                     {statusTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`bg-white rounded-lg p-3 border-l-4 ${statusColors[task.status]} shadow-sm hover:shadow-md transition-shadow`}
+                        className={`glass-dark border-l-2 ${priorityColors[task.priority]} rounded p-3 hover:border-cyan-500/50 transition-all-smooth group`}
                       >
                         <div className="flex items-start justify-between gap-2 mb-2">
-                          <h4 className="font-medium text-gray-900 text-sm flex-1">
+                          <h4 className="font-medium text-slate-200 text-sm flex-1 leading-tight">
                             {task.title}
                           </h4>
                           <button
                             onClick={() => handleDeleteTask(task.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
+                            className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
                             title="Delete task"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={12} />
                           </button>
                         </div>
 
-                        {task.description && (
-                          <p className="text-xs text-gray-600 mb-2">{task.description}</p>
-                        )}
-
+                        {/* Metadata */}
                         <div className="flex flex-wrap gap-2 mb-2">
-                          <span
-                            className={`text-xs px-2 py-1 rounded-full ${
-                              priorityColors[task.priority]
-                            }`}
-                          >
-                            {task.priority}
+                          <span className="text-xs px-2 py-0.5 bg-slate-800/50 text-slate-400 rounded mono border border-slate-700/50">
+                            {task.priority.toUpperCase()}
                           </span>
-                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                            {task.workflowType}
+                          <span className="text-xs px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded mono border border-cyan-500/30">
+                            {task.workflowType.replace(/-/g, '_').toUpperCase()}
                           </span>
                         </div>
 
-                        {task.assignees.length > 0 && (
-                          <div className="flex items-center gap-1 text-xs text-gray-600 mb-1">
-                            <Users size={12} />
-                            <span>{getAssigneeNames(task.assignees)}</span>
-                          </div>
-                        )}
+                        {/* Details */}
+                        <div className="space-y-1">
+                          {task.assignees.length > 0 && (
+                            <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                              <Users size={10} />
+                              <span>{getAssigneeNames(task.assignees)}</span>
+                            </div>
+                          )}
 
-                        {task.deadline && (
-                          <div className="flex items-center gap-1 text-xs text-gray-600 mb-1">
-                            <Calendar size={12} />
-                            <span>Due: {format(new Date(task.deadline), 'MMM d, yyyy')}</span>
-                          </div>
-                        )}
+                          {task.deadline && (
+                            <div className="flex items-center gap-2 text-xs text-amber-500 mono">
+                              <Calendar size={10} />
+                              <span>{format(new Date(task.deadline), 'MMM d, yyyy')}</span>
+                            </div>
+                          )}
 
-                        {task.blockedBy && (
-                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                            <strong>Blocked:</strong> {task.blockedBy}
-                          </div>
-                        )}
+                          {task.blockedBy && (
+                            <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400 mono">
+                              BLOCKED: {task.blockedBy}
+                            </div>
+                          )}
 
-                        {task.metadata && Object.keys(task.metadata).length > 0 && (
-                          <div className="mt-2 text-xs text-gray-500">
-                            {task.metadata.invoiceNumber && (
-                              <div>Invoice: {task.metadata.invoiceNumber}</div>
-                            )}
-                            {task.metadata.customerName && (
-                              <div>Customer: {task.metadata.customerName}</div>
-                            )}
-                            {task.metadata.amount && (
-                              <div>Amount: ${task.metadata.amount.toFixed(2)}</div>
-                            )}
-                          </div>
-                        )}
+                          {/* Metadata display */}
+                          {task.metadata && Object.keys(task.metadata).length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-1">
+                              {task.metadata.invoiceNumber && (
+                                <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                                  <span className="text-slate-600">INV:</span>
+                                  <span className="text-cyan-400">{task.metadata.invoiceNumber}</span>
+                                </div>
+                              )}
+                              {task.metadata.customerName && (
+                                <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                                  <span className="text-slate-600">CLIENT:</span>
+                                  <span>{task.metadata.customerName}</span>
+                                </div>
+                              )}
+                              {task.metadata.amount && (
+                                <div className="flex items-center gap-2 text-xs text-slate-500 mono">
+                                  <span className="text-slate-600">AMOUNT:</span>
+                                  <span className="text-emerald-400">
+                                    ${task.metadata.amount.toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
