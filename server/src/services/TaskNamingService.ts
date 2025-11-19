@@ -18,7 +18,17 @@ export class TaskNamingService {
     workflowType: string,
     metadata: Record<string, any>
   ): TaskNamingResult {
-    const learningPatterns = TaskNameLearningModel.getLearningPatterns();
+    let learningPatterns: { namingPatterns: string[]; taggingPatterns: string[] } = {
+      namingPatterns: [],
+      taggingPatterns: []
+    };
+
+    try {
+      learningPatterns = TaskNameLearningModel.getLearningPatterns();
+    } catch (error) {
+      console.error('Error loading learning patterns:', error);
+      // Continue without learning patterns
+    }
 
     // Generate task ID based on workflow
     const taskId = this.generateTaskId(workflowType);
@@ -207,33 +217,43 @@ export class TaskNamingService {
     correctedTags: string[],
     userMessage: string
   ): void {
-    TaskNameLearningModel.create({
-      id: uuidv4(),
-      originalTitle,
-      correctedTitle,
-      workflowType,
-      originalTags,
-      correctedTags,
-      userMessage
-    });
+    try {
+      TaskNameLearningModel.create({
+        id: uuidv4(),
+        originalTitle,
+        correctedTitle,
+        workflowType,
+        originalTags,
+        correctedTags,
+        userMessage
+      });
+    } catch (error) {
+      console.error('Error recording correction:', error);
+      // Don't fail the operation if learning fails
+    }
   }
 
   /**
    * Get suggestions for improving a task name based on learning
    */
   static getSuggestions(taskTitle: string, workflowType: string): string[] {
-    const corrections = TaskNameLearningModel.findByWorkflowType(workflowType);
-    const suggestions: string[] = [];
+    try {
+      const corrections = TaskNameLearningModel.findByWorkflowType(workflowType);
+      const suggestions: string[] = [];
 
-    // Find similar corrections
-    for (const correction of corrections) {
-      const similarity = this.calculateSimilarity(taskTitle, correction.originalTitle);
-      if (similarity > 0.5) {
-        suggestions.push(`Consider: "${correction.correctedTitle}" (based on similar past correction)`);
+      // Find similar corrections
+      for (const correction of corrections) {
+        const similarity = this.calculateSimilarity(taskTitle, correction.originalTitle);
+        if (similarity > 0.5) {
+          suggestions.push(`Consider: "${correction.correctedTitle}" (based on similar past correction)`);
+        }
       }
-    }
 
-    return suggestions.slice(0, 3);
+      return suggestions.slice(0, 3);
+    } catch (error) {
+      console.error('Error getting suggestions:', error);
+      return [];
+    }
   }
 
   private static calculateSimilarity(str1: string, str2: string): number {
